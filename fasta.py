@@ -7,6 +7,7 @@ from sklearn import metrics
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 import pandas as pd
+import seaborn as sns
 
 def load_data():
    # https://lncipedia.org/download
@@ -50,7 +51,7 @@ def load_data():
 
 def dbscan():
    df = load_data()
-   db = DBSCAN(eps=0.5, min_samples=4).fit(X)
+   db = DBSCAN(eps=0.5, min_samples=4).fit(df[['length', 'ratio_g']])
    core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
    core_samples_mask[db.core_sample_indices_] = True
    labels = db.labels_
@@ -74,12 +75,12 @@ def dbscan():
 
       class_member_mask = (labels == k)
 
-      xy = X[class_member_mask & core_samples_mask]
-      plt.plot(xy[:, 0], 'o', markerfacecolor=tuple(col),
+      xy = df[class_member_mask & core_samples_mask]
+      plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
                markeredgecolor='k', markersize=14)
 
-      xy = X[class_member_mask & ~core_samples_mask]
-      plt.plot(xy[:, 0], 'o', markerfacecolor=tuple(col),
+      xy = df[class_member_mask & ~core_samples_mask]
+      plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
                markeredgecolor='k', markersize=6)
 
    plt.title('Estimated number of clusters: %d' % n_clusters_)
@@ -94,4 +95,16 @@ def kmeans():
    plt.scatter(df['ratio_a'], df['ratio_t'])
    plt.show()
 
-kmeans()
+def pair():
+   df = load_data()
+   cols = ['length', 'ratio_g', 'ratio_a', 'ratio_c', 'ratio_t']
+   pp = sns.pairplot(df[cols], size=1.8, aspect=1.8,
+                     plot_kws=dict(edgecolor="k", linewidth=0.5),
+                     diag_kind="kde", diag_kws=dict(shade=True))
+
+   fig = pp.fig 
+   fig.subplots_adjust(top=0.93, wspace=0.3)
+   t = fig.suptitle('Wine Attributes Pairwise Plots', fontsize=14)
+   plt.show()
+
+pair()
