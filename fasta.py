@@ -49,9 +49,9 @@ def load_data():
    # df = StandardScaler().fit_transform(X)
    return df
 
-def dbscan():
-   df = load_data()
-   db = DBSCAN(eps=0.5, min_samples=4).fit(df[['length', 'ratio_g']])
+def dbscan(df, features):
+   df = df[features]
+   db = DBSCAN(eps=0.7, min_samples=5).fit(df)
    core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
    core_samples_mask[db.core_sample_indices_] = True
    labels = db.labels_
@@ -63,7 +63,6 @@ def dbscan():
    print('Estimated number of clusters: %d' % n_clusters_)
    print('Estimated number of noise points: %d' % n_noise_)
 
-   import matplotlib.pyplot as plt
    # Black removed and is used for noise instead.
    unique_labels = set(labels)
    colors = [plt.cm.Spectral(each)
@@ -76,27 +75,53 @@ def dbscan():
       class_member_mask = (labels == k)
 
       xy = df[class_member_mask & core_samples_mask]
-      plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
+      plt.plot(xy.iloc[:, 0], xy.iloc[:, 1], 'o', markerfacecolor=tuple(col),
                markeredgecolor='k', markersize=14)
 
       xy = df[class_member_mask & ~core_samples_mask]
-      plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
+      plt.plot(xy.iloc[:, 0], xy.iloc[:, 1], 'o', markerfacecolor=tuple(col),
                markeredgecolor='k', markersize=6)
 
    plt.title('Estimated number of clusters: %d' % n_clusters_)
-   plt.show()
 
-def kmeans():
-   df = load_data()
-   kmeans = KMeans(init='k-means++', n_clusters=3, n_init=3)
-   kmeans.fit(df[['ratio_a', 'ratio_t']])
+def kmeans(df, features, n_clusters):
+   df = df[features]
+   kmeans = KMeans(init='k-means++', n_clusters=n_clusters, n_init=3)
+   kmeans.fit(df)
+   LABEL_COLOR_MAP = {0 : 'r',
+                      1 : 'k',
+                      2: 'b',
+                      3: 'g'}
+   label_color = [LABEL_COLOR_MAP[l] for l in kmeans.labels_]
    centroids = kmeans.cluster_centers_
-   plt.scatter(centroids[:, 0], centroids[:, 1], marker='x', color='b', zorder=10)
-   plt.scatter(df['ratio_a'], df['ratio_t'])
-   plt.show()
+   if len(features) > 1:
+      plt.scatter(centroids[:, 0], centroids[:, 1], marker='x', color='g', zorder=10)
+      plt.scatter(df.iloc[:, 0], df.iloc[:, 1], c=label_color)
+   else:
+      plt.scatter(centroids[:, 0], np.zeros(shape=(n_clusters,1)), marker='x', color='g', zorder=10)
+      hist, edges = np.histogram(df.iloc[:, 0], bins=100)
+      def add_counts(f):
+         found_edge = 0
+         found_count = 0
+         for histogram in zip(edges, hist):
+            edge = histogram[0]
+            count = histogram[1]
+            if edge > f[0]:
+               break
+            else:
+               found_edge = edge
+               found_count = count
+         f['count'] = found_count
+         return f
+      df = df.apply(axis=1, func=add_counts)
+      plt.scatter(df['length'], df['count'], c=label_color)
 
-def pair():
-   df = load_data()
+      df = df.sort_values(by='length', axis=0)
+      plt.plot(df['length'], df['count'])
+
+# https://matplotlib.org/3.1.0/gallery/lines_bars_and_markers/scatter_hist.html
+
+def pair(df):
    cols = ['length', 'ratio_g', 'ratio_a', 'ratio_c', 'ratio_t']
    pp = sns.pairplot(df[cols], size=1.8, aspect=1.8,
                      plot_kws=dict(edgecolor="k", linewidth=0.5),
@@ -104,7 +129,7 @@ def pair():
 
    fig = pp.fig 
    fig.subplots_adjust(top=0.93, wspace=0.3)
-   t = fig.suptitle('Wine Attributes Pairwise Plots', fontsize=14)
-   plt.show()
 
-pair()
+df = load_data()
+kmeans(df, ['length'], 3)
+plt.show()
