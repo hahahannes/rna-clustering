@@ -83,21 +83,22 @@ def dbscan(df, features):
                markeredgecolor='k', markersize=6)
 
    plt.title('Estimated number of clusters: %d' % n_clusters_)
+   plt.savefig('dbscan.png')
 
-def kmeans(df, features, n_clusters):
-   df = df[features]
-   kmeans = KMeans(init='k-means++', n_clusters=n_clusters, n_init=3)
-   kmeans.fit(df)
-   LABEL_COLOR_MAP = {0 : 'r',
-                      1 : 'k',
-                      2: 'b',
-                      3: 'g'}
-   label_color = [LABEL_COLOR_MAP[l] for l in kmeans.labels_]
-   centroids = kmeans.cluster_centers_
-   if len(features) > 1:
-      plt.scatter(centroids[:, 0], centroids[:, 1], marker='x', color='g', zorder=10)
-      plt.scatter(df.iloc[:, 0], df.iloc[:, 1], c=label_color)
-   else:
+def kmeans(df_all, features, n_clusters):
+   def calc_centroids(df, n_clusters):
+      kmeans = KMeans(init='k-means++', n_clusters=n_clusters, n_init=3)
+      kmeans.fit(df)
+      LABEL_COLOR_MAP = {0 : 'r',
+                              1 : 'k',
+                              2: 'b',
+                              3: 'g'}
+      label_color = [LABEL_COLOR_MAP[l] for l in kmeans.labels_]
+      return (label_color, kmeans.cluster_centers_)
+
+   for i, feature1 in enumerate(features):
+      df = df_all[[feature1]]
+      label_color, centroids = calc_centroids(df, n_clusters)
       plt.scatter(centroids[:, 0], np.zeros(shape=(n_clusters,1)), marker='x', color='g', zorder=10)
       hist, edges = np.histogram(df.iloc[:, 0], bins=100)
       def add_counts(f):
@@ -110,26 +111,42 @@ def kmeans(df, features, n_clusters):
                break
             else:
                found_edge = edge
-               found_count = count
+            found_count = count
          f['count'] = found_count
          return f
       df = df.apply(axis=1, func=add_counts)
-      plt.scatter(df['length'], df['count'], c=label_color)
+      plt.scatter(df[feature1], df['count'], c=label_color)
+      df = df.sort_values(by=feature1, axis=0)
+      plt.plot(df[feature1], df['count'])
+      plt.savefig('%s.png' % (feature1))
+      plt.clf()
+      plt.close()
 
-      df = df.sort_values(by='length', axis=0)
-      plt.plot(df['length'], df['count'])
+      for feature2 in features[i+1:]:
+         df = df_all[[feature1, feature2]]
+         label_color, centroids = calc_centroids(df, n_clusters)
+         plt.scatter(centroids[:, 0], centroids[:, 1], marker='x', color='g', zorder=10)
+         plt.scatter(df[feature1], df[feature2], c=label_color)
+         plt.xlabel(feature1)
+         plt.ylabel(feature2)
+         plt.savefig('%s-%s.png' % (feature1, feature2))
+         plt.clf()
+         plt.close()
+
 
 # https://matplotlib.org/3.1.0/gallery/lines_bars_and_markers/scatter_hist.html
 
-def pair(df):
-   cols = ['length', 'ratio_g', 'ratio_a', 'ratio_c', 'ratio_t']
-   pp = sns.pairplot(df[cols], size=1.8, aspect=1.8,
+def pair(df, features):
+   pp = sns.pairplot(df[features], size=1.8, aspect=1.8,
                      plot_kws=dict(edgecolor="k", linewidth=0.5),
                      diag_kind="kde", diag_kws=dict(shade=True))
 
    fig = pp.fig 
    fig.subplots_adjust(top=0.93, wspace=0.3)
+   pp.savefig('pair_plot.png')
 
 df = load_data()
-kmeans(df, ['length'], 3)
-plt.show()
+features = ['length', 'ratio_g', 'ratio_a', 'ratio_c', 'ratio_t']
+kmeans(df, features, 4)
+dbscan(df, features)
+pair(df, features)
