@@ -8,19 +8,21 @@ from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+from pybedtools import BedTool
 
 def load_data():
    # https://lncipedia.org/download
-   data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': []}
-   data = SeqIO.parse("data/lncipedia_5_2.fasta", "fasta")
-   for i, record in enumerate(data):
-      #print("Id: %s" % record.id) 
-      #print("Name: %s" % record.name) 
-      #print("Description: %s" % record.description) 
-      #print("Annotations: %s" % record.annotations) 
-      #print("Sequence Alphabet: %s" % record.seq.alphabet)record.seq
+   data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': []}
+   fasta_data = SeqIO.parse("data/lncipedia_5_2.fasta", "fasta")
+   bed_raw_data = BedTool('data/lncipedia.bed')
+   bed_data = {}
+   for record in bed_raw_data:
+      bed_data[record.name] = int(record.fields[9])
+
+   for i, record in enumerate(fasta_data):
       length = len(record.seq)
       data_dict['length'].append(length)
+      data_dict['number_exons'].append(bed_data[record.name])
 
       count_g = 0
       count_a = 0
@@ -42,13 +44,13 @@ def load_data():
       data_dict['ratio_c'].append(count_c/length*100)
       data_dict['ratio_a'].append(count_a/length*100)
 
-      if i == 1000:
+      if i == 500:
          break
    df = pd.DataFrame.from_dict(data_dict)
    return df
 
 def fit_dbscan(df):
-   db = DBSCAN(eps=0.7, min_samples=5).fit(df)
+   db = DBSCAN(eps=0.2, min_samples=5).fit(df)
    core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
    core_samples_mask[db.core_sample_indices_] = True
    labels = db.labels_
@@ -166,9 +168,10 @@ def pair(df, features):
 
    fig = pp.fig 
    fig.subplots_adjust(top=0.93, wspace=0.3)
-   pp.savefig('pair_plot.png')
+   pp.savefig('output/pair_plot.png')
 
 df = load_data()
-features = ['length', 'ratio_g', 'ratio_a', 'ratio_c', 'ratio_t']
+features = ['length', 'ratio_g', 'ratio_a', 'ratio_c', 'ratio_t', 'number_exons']
 run_all_clustering(df, features)
+#run_dbscan(df[['length', 'ratio_g']], ['length', 'ratio_g'])
 pair(df, features)
