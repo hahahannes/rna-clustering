@@ -9,20 +9,44 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from pybedtools import BedTool
+from scipy.spatial.distance import cdist 
+
+
+def calc_number_introns(start_pos, end_pos, list_of_exons_coordinates):
+   number_introns = 0
+   seq_starting_with_exon = False
+   seq_ending_with_exon = False
+   for exon in list_of_exons_coordinates:
+      exon_start_pos = exon[0]
+      exon_end_pos = exon[1]
+      if exon_start_pos == start_pos:
+         seq_starting_with_exon = True
+      if exon_end_pos == end_pos:
+         seq_ending_with_exon = True 
+   return number_introns
 
 def load_data():
    # https://lncipedia.org/download
-   data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': []}
+   data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': [], 'chromosom': [], 'start_pos': [], 'end_pos': [], 'length_from_pos': []}
    fasta_data = SeqIO.parse("data/lncipedia_5_2.fasta", "fasta")
    bed_raw_data = BedTool('data/lncipedia.bed')
+   annotation_data = None
    bed_data = {}
+   
    for record in bed_raw_data:
-      bed_data[record.name] = int(record.fields[9])
+      bed_data[record.name] = {
+         'number_exons': int(record.fields[9]),
+         'chromosom': record.fields[0],
+         'start_pos': int(record.fields[1]),
+         'end_pos': int(record.fields[2])
+      }
 
    for i, record in enumerate(fasta_data):
       length = len(record.seq)
       data_dict['length'].append(length)
-      data_dict['number_exons'].append(bed_data[record.name])
+      for bed_feature in ['number_exons', 'chromosom', 'start_pos', 'end_pos']:
+         data_dict[bed_feature].append(bed_data[record.name][bed_feature])
+      data_dict['length_from_pos'].append(bed_data[record.name]['end_pos'] - bed_data[record.name]['start_pos'])
 
       count_g = 0
       count_a = 0
@@ -44,13 +68,13 @@ def load_data():
       data_dict['ratio_c'].append(count_c/length*100)
       data_dict['ratio_a'].append(count_a/length*100)
 
-      if i == 500:
+      if i == 10000:
          break
    df = pd.DataFrame.from_dict(data_dict)
    return df
 
-def fit_dbscan(df):
-   db = DBSCAN(eps=0.2, min_samples=5).fit(df)
+def fit_dbscan(df, eps=0.2):
+   db = DBSCAN(eps=eps, min_samples=5).fit(df)
    core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
    core_samples_mask[db.core_sample_indices_] = True
    labels = db.labels_
@@ -61,11 +85,11 @@ def fit_dbscan(df):
 
    return (n_clusters_, n_noise_, labels, core_samples_mask)
 
-def run_dbscan(df, features):
+def run_dbscan(df, features, eps):
    output_path = './output/dbscan' 
    feature1 = features[0]
    feature2 = features[1]
-   n_clusters_, n_noise_, labels, core_samples_mask = fit_dbscan(df)
+   n_clusters_, n_noise_, labels, core_samples_mask = fit_dbscan(df, eps)
    print('Estimated number of clusters: %d' % n_clusters_)
    print('Estimated number of noise points: %d' % n_noise_)
 
@@ -96,32 +120,28 @@ def run_dbscan(df, features):
    plt.close()
 
 def run_all_clustering(df_all, features):
+   k_means_number_clusters = 4
    for i, feature1 in enumerate(features):
       df = df_all[[feature1]]
-      run_kmeans(df, [feature1], 4)
+      run_kmeans(df, [feature1], k_means_number_clusters)
 
       for feature2 in features[i+1:]:
          df = df_all[[feature1, feature2]]
-         df = df.apply(lambda x: (x-x.mean()) / x.std(), axis=0)
-         run_kmeans(df, [feature1, feature2], 4)
+         #df = df.apply(lambda x: (x-x.mean()) / x.std(), axis=0)
+         run_kmeans(df, [feature1, feature2], k_means_number_clusters)
          run_dbscan(df, [feature1, feature2])
 
 def fit_kmeans(df, n_clusters):
    kmeans = KMeans(init='k-means++', n_clusters=n_clusters, n_init=3)
    kmeans.fit(df)
-   LABEL_COLOR_MAP = {0 : 'r',
-                         1 : 'k',
-                         2: 'b',
-                         3: 'g'}
-   label_color = [LABEL_COLOR_MAP[l] for l in kmeans.labels_]
-   return (label_color, kmeans.cluster_centers_)
+   return (kmeans, kmeans.cluster_centers_)
 
 def run_kmeans(df, features, n_clusters):
    output_path = './output/kmeans' 
    
    if len(features) == 1:
       feature1 = features[0]
-      label_color, centroids = fit_kmeans(df, n_clusters)
+      model, centroids = fit_kmeans(df, n_clusters)
       plt.scatter(centroids[:, 0], np.zeros(shape=(n_clusters,1)), marker='x', color='g', zorder=10)
       hist, edges = np.histogram(df.iloc[:, 0], bins=100)
       def add_counts(f):
@@ -149,9 +169,9 @@ def run_kmeans(df, features, n_clusters):
    else:
       feature1 = features[0]
       feature2 = features[1]
-      label_color, centroids = fit_kmeans(df, n_clusters)
-      plt.scatter(centroids[:, 0], centroids[:, 1], marker='x', color='g', zorder=10)
-      plt.scatter(df[feature1], df[feature2], c=label_color)
+      model, centroids = fit_kmeans(df, n_clusters)
+      plt.scatter(centroids[:, 0], centroids[:, 1], marker='x', color='b', zorder=10)
+      plt.scatter(df[feature1], df[feature2], c=model.predict(df))
       plt.xlabel(feature1)
       plt.ylabel(feature2)
       plt.savefig('%s/%s-%s.png' % (output_path, feature1, feature2))
@@ -170,8 +190,39 @@ def pair(df, features):
    fig.subplots_adjust(top=0.93, wspace=0.3)
    pp.savefig('output/pair_plot.png')
 
+def calc_distortion(df, cluster_centers):
+   return sum(np.min(cdist(df, cluster_centers, 'euclidean'),axis=1)) / df.shape[0] 
+
+def plot_elbow(K, distortions):
+   plt.plot(K, distortions, 'bx-') 
+   plt.xlabel('Values of K') 
+   plt.ylabel('Distortion') 
+   plt.title('The Elbow Method using Distortion') 
+   plt.show() 
+
+def find_best_number_clusters(df):
+   distortions = []
+   K = [2,4,6,8,10,12,14,16,18,20]
+
+   for k in K:
+      label_color, cluster_centers = fit_kmeans(df, k)
+      distortions.append(calc_distortion(df, cluster_centers))
+   plot_elbow(K, distortions)
+
+def find_best_eps(df):
+   eps = [0.001, 0.1, 0.5, 1, 2, 4, 5]
+   df = df.apply(lambda x: (x-x.mean()) / x.std(), axis=0)
+   for ep in eps:
+      n_clusters_, n_noise_, labels, core_samples_mask = fit_dbscan(df, ep)
+      silhouette_score = metrics.silhouette_score(df, labels)
+      print('%s: %s' % (ep, silhouette_score))
+
 df = load_data()
-features = ['length', 'ratio_g', 'ratio_a', 'ratio_c', 'ratio_t', 'number_exons']
-run_all_clustering(df, features)
-#run_dbscan(df[['length', 'ratio_g']], ['length', 'ratio_g'])
-pair(df, features)
+features = ['length', 'ratio_g', 'ratio_a', 'ratio_c', 'ratio_t', 'number_exons', 'length_from_pos']
+#pair(df, features)
+#run_all_clustering(df, features)
+#run_dbscan(df[['length', 'number_exons']], ['length', 'number_exons'], 40)
+#run_kmeans(df, ['length','number_exons'], 8)
+
+df = df[['length', 'number_exons']]
+find_best_eps(df)
