@@ -1,1 +1,8 @@
 biopython
+matplotlib
+numpy
+pandas
+pybedtools
+scipy
+seaborn
+sklearn
