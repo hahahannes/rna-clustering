@@ -1,6 +1,9 @@
 biopython
-gff3
-scipy
-pybedtools
-sklearn
 bcbio-gff
+matplotlib
+numpy
+pandas
+pybedtools
+scipy
+seaborn
+sklearn
