@@ -10,12 +10,14 @@ import pandas as pd
 import seaborn as sns
 from pybedtools import BedTool
 from scipy.spatial.distance import cdist 
+from BCBio.GFF import GFFExaminer
+from BCBio import GFF
 
 
 def calc_number_introns(start_pos, end_pos, list_of_exons_coordinates):
-   number_introns = 0
    seq_starting_with_exon = False
    seq_ending_with_exon = False
+   num_exons = len(list_of_exons_coordinates)
    for exon in list_of_exons_coordinates:
       exon_start_pos = exon[0]
       exon_end_pos = exon[1]
@@ -23,21 +25,46 @@ def calc_number_introns(start_pos, end_pos, list_of_exons_coordinates):
          seq_starting_with_exon = True
       if exon_end_pos == end_pos:
          seq_ending_with_exon = True 
-   return number_introns
+
+   if seq_starting_with_exon and seq_ending_with_exon:
+      return num_exons - 1
+   elif (seq_starting_with_exon and not seq_ending_with_exon) or (seq_ending_with_exon and not seq_starting_with_exon):
+      return num_exons
+   else:
+      return num_exons + 1
 
 def load_data():
    # https://lncipedia.org/download
-   data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': [], 'chromosom': [], 'start_pos': [], 'end_pos': [], 'length_from_pos': []}
+   data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': [], 'chromosom': [], 'start_pos': [], 'end_pos': [], 'length_from_pos': [], 'number_introns': []}
    fasta_data = SeqIO.parse("data/lncipedia_5_2.fasta", "fasta")
    bed_raw_data = BedTool('data/lncipedia.bed')
-   annotation_data = None
+   examiner = GFFExaminer()
+   in_handle = open('data/lncipedia_5_2_hg38.gff')
+   annotation_data = {}
+   for i, rec in enumerate(GFF.parse(in_handle)):
+      # chromosom e.g. chr1
+      for feature in rec.features:
+         # lncRNA eg. LNC1725
+         if not feature.type == 'lnc_RNA':
+            break
+
+         exon_locations = []
+         lnc_id = feature.id
+         for sub_feature in feature.sub_features:
+            if sub_feature.type == 'exon':
+               exon = (sub_feature.location.start, sub_feature.location.end)
+               exon_locations.append(exon)
+
+         annotation_data[lnc_id] = exon_locations
+      
+   in_handle.close()
    bed_data = {}
    
    for record in bed_raw_data:
       bed_data[record.name] = {
          'number_exons': int(record.fields[9]),
          'chromosom': record.fields[0],
-         'start_pos': int(record.fields[1]),
+         'start_pos': int(record.fields[1]), # im bed -1 im vgl zu gff und online
          'end_pos': int(record.fields[2])
       }
 
@@ -46,7 +73,12 @@ def load_data():
       data_dict['length'].append(length)
       for bed_feature in ['number_exons', 'chromosom', 'start_pos', 'end_pos']:
          data_dict[bed_feature].append(bed_data[record.name][bed_feature])
-      data_dict['length_from_pos'].append(bed_data[record.name]['end_pos'] - bed_data[record.name]['start_pos'])
+
+      end_pos = bed_data[record.name]['end_pos']
+      start_pos = bed_data[record.name]['start_pos']
+      exon_locations = annotation_data[record.id]
+      data_dict['length_from_pos'].append(end_pos - start_pos)
+      data_dict['number_introns'].append(calc_number_introns(start_pos, end_pos, exon_locations))
 
       count_g = 0
       count_a = 0
@@ -120,14 +152,14 @@ def run_dbscan(df, features, eps):
    plt.close()
 
 def run_all_clustering(df_all, features):
-   k_means_number_clusters = 4
+   k_means_number_clusters = 8
    for i, feature1 in enumerate(features):
       df = df_all[[feature1]]
       run_kmeans(df, [feature1], k_means_number_clusters)
 
       for feature2 in features[i+1:]:
          df = df_all[[feature1, feature2]]
-         #df = df.apply(lambda x: (x-x.mean()) / x.std(), axis=0)
+         df = df.apply(lambda x: (x-x.mean()) / x.std(), axis=0)
          run_kmeans(df, [feature1, feature2], k_means_number_clusters)
          run_dbscan(df, [feature1, feature2])
 
@@ -211,16 +243,15 @@ def find_best_number_clusters(df):
 
 def find_best_eps(df):
    eps = [0.001, 0.1, 0.5, 1, 2, 4, 5]
-   df = df.apply(lambda x: (x-x.mean()) / x.std(), axis=0)
    for ep in eps:
       n_clusters_, n_noise_, labels, core_samples_mask = fit_dbscan(df, ep)
       silhouette_score = metrics.silhouette_score(df, labels)
       print('%s: %s' % (ep, silhouette_score))
 
 df = load_data()
-features = ['length', 'ratio_g', 'ratio_a', 'ratio_c', 'ratio_t', 'number_exons', 'length_from_pos']
+features = ['length', 'ratio_g', 'ratio_a', 'ratio_c', 'ratio_t', 'number_exons', 'length_from_pos', 'number_introns']
 #pair(df, features)
-#run_all_clustering(df, features)
+run_all_clustering(df, features)
 #run_dbscan(df[['length', 'number_exons']], ['length', 'number_exons'], 40)
 #run_kmeans(df, ['length','number_exons'], 8)
 

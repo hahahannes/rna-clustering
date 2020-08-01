@@ -1,1 +1,6 @@
 biopython
+gff3
+scipy
+pybedtools
+sklearn
+bcbio-gff
