@@ -248,12 +248,3 @@ def find_best_eps(df):
       silhouette_score = metrics.silhouette_score(df, labels)
       print('%s: %s' % (ep, silhouette_score))
 
-df = load_data()
-features = ['length', 'ratio_g', 'ratio_a', 'ratio_c', 'ratio_t', 'number_exons', 'length_from_pos', 'number_introns']
-#pair(df, features)
-run_all_clustering(df, features)
-#run_dbscan(df[['length', 'number_exons']], ['length', 'number_exons'], 40)
-#run_kmeans(df, ['length','number_exons'], 8)
-
-df = df[['length', 'number_exons']]
-find_best_eps(df)
