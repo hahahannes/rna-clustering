@@ -12,7 +12,7 @@ from pybedtools import BedTool
 from scipy.spatial.distance import cdist 
 from BCBio.GFF import GFFExaminer
 from BCBio import GFF
-
+from statistics import mean
 
 def calc_number_introns(start_pos, end_pos, list_of_exons_coordinates):
    seq_starting_with_exon = False
@@ -33,9 +33,14 @@ def calc_number_introns(start_pos, end_pos, list_of_exons_coordinates):
    else:
       return num_exons + 1
 
-def load_data():
+def calc_mean_exon_length(list_of_exons_coordinates):
+   lengths = [exon[1] - exon[0] for exon in list_of_exons_coordinates]
+   return mean(lengths)
+
+
+def load_data(n_rows=10000):
    # https://lncipedia.org/download
-   data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': [], 'chromosom': [], 'start_pos': [], 'end_pos': [], 'length_from_pos': [], 'number_introns': []}
+   data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': [], 'chromosom': [], 'start_pos': [], 'end_pos': [], 'length_from_pos': [], 'number_introns': [], 'mean_exon_length': []}
    fasta_data = SeqIO.parse("data/lncipedia_5_2.fasta", "fasta")
    bed_raw_data = BedTool('data/lncipedia.bed')
    examiner = GFFExaminer()
@@ -79,6 +84,7 @@ def load_data():
       exon_locations = annotation_data[record.id]
       data_dict['length_from_pos'].append(end_pos - start_pos)
       data_dict['number_introns'].append(calc_number_introns(start_pos, end_pos, exon_locations))
+      data_dict['mean_exon_length'].append(calc_mean_exon_length(exon_locations))
 
       count_g = 0
       count_a = 0
@@ -100,7 +106,7 @@ def load_data():
       data_dict['ratio_c'].append(count_c/length*100)
       data_dict['ratio_a'].append(count_a/length*100)
 
-      if i == 10000:
+      if i == n_rows:
          break
    df = pd.DataFrame.from_dict(data_dict)
    return df
@@ -117,14 +123,7 @@ def fit_dbscan(df, eps=0.2):
 
    return (n_clusters_, n_noise_, labels, core_samples_mask)
 
-def run_dbscan(df, features, eps):
-   output_path = './output/dbscan' 
-   feature1 = features[0]
-   feature2 = features[1]
-   n_clusters_, n_noise_, labels, core_samples_mask = fit_dbscan(df, eps)
-   print('Estimated number of clusters: %d' % n_clusters_)
-   print('Estimated number of noise points: %d' % n_noise_)
-
+def plot_dbscan(df, labels, core_samples_mask, n_clusters_):
    # Black removed and is used for noise instead.
    unique_labels = set(labels)
    colors = [plt.cm.Spectral(each)
@@ -145,17 +144,60 @@ def run_dbscan(df, features, eps):
                markeredgecolor='k', markersize=6)
 
    plt.title('Estimated number of clusters: %d' % n_clusters_)
+   plt.xlabel(df.columns[0])
+   plt.ylabel(df.columns[1])
+   output_path = './output/dbscan' 
+   plt.savefig('%s/%s-%s.png' % (output_path, df.columns[0], df.columns[1]))
+   plt.clf()
+   plt.close()
+
+def plot_kmeans_2d(centroids, df, n_clusters, model):
+   feature1 = df.columns[0]
+   feature2 = df.columns[1]
+   plt.scatter(centroids[:, 0], centroids[:, 1], marker='x', color='b', zorder=10)
+   plt.scatter(df[feature1], df[feature2], c=model.predict(df))
    plt.xlabel(feature1)
    plt.ylabel(feature2)
    plt.savefig('%s/%s-%s.png' % (output_path, feature1, feature2))
    plt.clf()
    plt.close()
 
+def plot_kmeans_1d(centroids, df, n_clusters, model):
+   feature1 = df.columns[0]
+   plt.scatter(centroids[:, 0], np.zeros(shape=(n_clusters,1)), marker='x', color='g', zorder=10)
+   hist, edges = np.histogram(df.iloc[:, 0], bins=100)
+   def add_counts(f):
+      found_edge = 0
+      found_count = 0
+      for histogram in zip(edges, hist):
+         edge = histogram[0]
+         count = histogram[1]
+         if edge > f[0]:
+            break
+         else:
+            found_edge = edge
+         found_count = count
+      f['count'] = found_count
+      return f
+   df = df.apply(axis=1, func=add_counts)
+   plt.scatter(df[feature1], df['count'], c=model.predict(df[[feature1]]))
+   df = df.sort_values(by=feature1, axis=0)
+   plt.plot(df[feature1], df['count'])
+   plt.xlabel(feature1)
+   plt.ylabel('Haeufigkeit')
+   plt.savefig('%s/%s.png' % (output_path, feature1))
+   plt.clf()
+   plt.close()
+
+def run_dbscan(df, eps):
+   n_clusters_, n_noise_, labels, core_samples_mask = fit_dbscan(df, eps)
+   plot_dbscan(df, labels, core_samples_mask, n_clusters_)
+
 def run_all_clustering(df_all, features):
    k_means_number_clusters = 8
    for i, feature1 in enumerate(features):
       df = df_all[[feature1]]
-      run_kmeans(df, [feature1], k_means_number_clusters)
+      run_kmeans(df, k_means_number_clusters)
 
       for feature2 in features[i+1:]:
          df = df_all[[feature1, feature2]]
@@ -168,47 +210,15 @@ def fit_kmeans(df, n_clusters):
    kmeans.fit(df)
    return (kmeans, kmeans.cluster_centers_)
 
-def run_kmeans(df, features, n_clusters):
+def run_kmeans(df, n_clusters):
    output_path = './output/kmeans' 
-   
-   if len(features) == 1:
-      feature1 = features[0]
-      model, centroids = fit_kmeans(df, n_clusters)
-      plt.scatter(centroids[:, 0], np.zeros(shape=(n_clusters,1)), marker='x', color='g', zorder=10)
-      hist, edges = np.histogram(df.iloc[:, 0], bins=100)
-      def add_counts(f):
-         found_edge = 0
-         found_count = 0
-         for histogram in zip(edges, hist):
-            edge = histogram[0]
-            count = histogram[1]
-            if edge > f[0]:
-               break
-            else:
-               found_edge = edge
-            found_count = count
-         f['count'] = found_count
-         return f
-      df = df.apply(axis=1, func=add_counts)
-      plt.scatter(df[feature1], df['count'], c=label_color)
-      df = df.sort_values(by=feature1, axis=0)
-      plt.plot(df[feature1], df['count'])
-      plt.xlabel(feature1)
-      plt.ylabel('Haeufigkeit')
-      plt.savefig('%s/%s.png' % (output_path, feature1))
-      plt.clf()
-      plt.close()
+   model, centroids = fit_kmeans(df, n_clusters)
+
+   if len(df.columns) == 1:
+      plot_kmeans_1d(centroids, df, n_clusters, model)      
    else:
-      feature1 = features[0]
-      feature2 = features[1]
-      model, centroids = fit_kmeans(df, n_clusters)
-      plt.scatter(centroids[:, 0], centroids[:, 1], marker='x', color='b', zorder=10)
-      plt.scatter(df[feature1], df[feature2], c=model.predict(df))
-      plt.xlabel(feature1)
-      plt.ylabel(feature2)
-      plt.savefig('%s/%s-%s.png' % (output_path, feature1, feature2))
-      plt.clf()
-      plt.close()
+      plot_kmeans_2d(centroids, df, n_clusters, model)
+      
 
 
 # https://matplotlib.org/3.1.0/gallery/lines_bars_and_markers/scatter_hist.html
@@ -237,14 +247,21 @@ def find_best_number_clusters(df):
    K = [2,4,6,8,10,12,14,16,18,20]
 
    for k in K:
-      label_color, cluster_centers = fit_kmeans(df, k)
+      model, cluster_centers = fit_kmeans(df, k)
       distortions.append(calc_distortion(df, cluster_centers))
    plot_elbow(K, distortions)
 
-def find_best_eps(df):
-   eps = [0.001, 0.1, 0.5, 1, 2, 4, 5]
-   for ep in eps:
+def find_best_eps(df, eps_range=[0.001, 0.1, 0.5, 1, 2, 4, 5, 10, 20]):
+   silouettes = []
+   for ep in eps_range:
       n_clusters_, n_noise_, labels, core_samples_mask = fit_dbscan(df, ep)
       silhouette_score = metrics.silhouette_score(df, labels)
-      print('%s: %s' % (ep, silhouette_score))
+      silouettes.append(silhouette_score)
+   plot_best_eps(eps_range, silouettes)
 
+def plot_best_eps(eps, silouettes):
+   plt.plot(eps, silouettes, 'bx-') 
+   plt.xlabel('Values of eps') 
+   plt.ylabel('Silouette Score') 
+   plt.title('Silhouette score per Epsilon') 
+   plt.show() 
