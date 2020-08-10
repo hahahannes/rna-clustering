@@ -109,6 +109,11 @@ def load_data(n_rows=10000):
       if i == n_rows:
          break
    df = pd.DataFrame.from_dict(data_dict)
+   df['chromosom'] = df['chromosom'].apply(lambda x: x.split('chr')[1])
+   df = df[df['chromosom'] != 'X']
+   df['chromosom'] = pd.to_numeric(df['chromosom'])
+   df = df.apply(lambda x: (x-x.mean()) / x.std(), axis=0)
+
    return df
 
 def fit_dbscan(df, eps=0.2):
@@ -151,20 +156,31 @@ def plot_dbscan(df, labels, core_samples_mask, n_clusters_):
    plt.clf()
    plt.close()
 
-def plot_kmeans_2d(centroids, df, n_clusters, model):
+def plot_kmeans_2d(centroids, df, n_clusters, model, ax):
    feature1 = df.columns[0]
    feature2 = df.columns[1]
-   plt.scatter(centroids[:, 0], centroids[:, 1], marker='x', color='b', zorder=10)
-   plt.scatter(df[feature1], df[feature2], c=model.predict(df))
-   plt.xlabel(feature1)
-   plt.ylabel(feature2)
-   plt.savefig('%s/%s-%s.png' % (output_path, feature1, feature2))
-   plt.clf()
-   plt.close()
+   ax.scatter(centroids[:, 0], centroids[:, 1], marker='x', color='b', zorder=10)
+   ax.scatter(df[feature1], df[feature2], c=model.predict(df))
+   ax.set_xlabel(feature1)
+   ax.set_ylabel(feature2)
+   #plt.savefig('%s/%s-%s.png' % (output_path, feature1, feature2))
+  
 
-def plot_kmeans_1d(centroids, df, n_clusters, model):
+def plot_kmeans_3d(model, df, ax):
+    ax.scatter(df.iloc[:, 0], df.iloc[:, 1], df.iloc[:, 2],
+               c=model.predict(df), edgecolor='k')
+
+    ax.w_xaxis.set_ticklabels([])
+    ax.w_yaxis.set_ticklabels([])
+    ax.w_zaxis.set_ticklabels([])
+    ax.set_xlabel(df.columns[0])
+    ax.set_ylabel(df.columns[1])
+    ax.set_zlabel(df.columns[2])
+    ax.dist = 12
+
+def plot_kmeans_1d(centroids, df, n_clusters, model, ax):
    feature1 = df.columns[0]
-   plt.scatter(centroids[:, 0], np.zeros(shape=(n_clusters,1)), marker='x', color='g', zorder=10)
+   ax.scatter(centroids[:, 0], np.zeros(shape=(n_clusters,1)), marker='x', color='g', zorder=10)
    hist, edges = np.histogram(df.iloc[:, 0], bins=100)
    def add_counts(f):
       found_edge = 0
@@ -180,14 +196,14 @@ def plot_kmeans_1d(centroids, df, n_clusters, model):
       f['count'] = found_count
       return f
    df = df.apply(axis=1, func=add_counts)
-   plt.scatter(df[feature1], df['count'], c=model.predict(df[[feature1]]))
+   ax.scatter(df[feature1], df['count'], c=model.predict(df[[feature1]]))
    df = df.sort_values(by=feature1, axis=0)
-   plt.plot(df[feature1], df['count'])
-   plt.xlabel(feature1)
-   plt.ylabel('Haeufigkeit')
-   plt.savefig('%s/%s.png' % (output_path, feature1))
-   plt.clf()
-   plt.close()
+   ax.plot(df[feature1], df['count'])
+   ax.set_xlabel(feature1)
+   ax.set_ylabel('Haeufigkeit')
+   #plt.savefig('%s/%s.png' % (output_path, feature1))
+   #plt.clf()
+   #plt.close()
 
 def run_dbscan(df, eps):
    n_clusters_, n_noise_, labels, core_samples_mask = fit_dbscan(df, eps)
@@ -201,18 +217,17 @@ def run_all_clustering(df_all, features):
 
       for feature2 in features[i+1:]:
          df = df_all[[feature1, feature2]]
-         df = df.apply(lambda x: (x-x.mean()) / x.std(), axis=0)
          run_kmeans(df, [feature1, feature2], k_means_number_clusters)
          run_dbscan(df, [feature1, feature2])
 
 def fit_kmeans(df, n_clusters):
    kmeans = KMeans(init='k-means++', n_clusters=n_clusters, n_init=3)
-   kmeans.fit(df)
-   return (kmeans, kmeans.cluster_centers_)
+   cluster_labels = kmeans.fit_predict(df)
+   return (kmeans, kmeans.cluster_centers_, cluster_labels)
 
 def run_kmeans(df, n_clusters):
    output_path = './output/kmeans' 
-   model, centroids = fit_kmeans(df, n_clusters)
+   model, centroids, labels = fit_kmeans(df, n_clusters)
 
    if len(df.columns) == 1:
       plot_kmeans_1d(centroids, df, n_clusters, model)      
@@ -242,14 +257,15 @@ def plot_elbow(K, distortions):
    plt.title('The Elbow Method using Distortion') 
    plt.show() 
 
-def find_best_number_clusters(df):
+def find_best_number_clusters(df, k_range=[2,4,6,8,10,12,14,16,18,20]):
    distortions = []
-   K = [2,4,6,8,10,12,14,16,18,20]
 
-   for k in K:
-      model, cluster_centers = fit_kmeans(df, k)
-      distortions.append(calc_distortion(df, cluster_centers))
-   plot_elbow(K, distortions)
+   for k in k_range:
+      model, cluster_centers, labels = fit_kmeans(df, k)
+      #distortions.append(calc_distortion(df, cluster_centers))
+      distortions.append(metrics.silhouette_score(df, labels))
+
+   return [k_range[distortions.index(max(distortions))], distortions]
 
 def find_best_eps(df, eps_range=[0.001, 0.1, 0.5, 1, 2, 4, 5, 10, 20]):
    silouettes = []
