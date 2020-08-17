@@ -13,6 +13,7 @@ from scipy.spatial.distance import cdist
 from BCBio.GFF import GFFExaminer
 from BCBio import GFF
 from statistics import mean
+import pickle
 
 def calc_number_introns(start_pos, end_pos, list_of_exons_coordinates):
    seq_starting_with_exon = False
@@ -40,7 +41,7 @@ def calc_mean_exon_length(list_of_exons_coordinates):
 
 def load_data(n_row=None):
    # https://lncipedia.org/download
-   data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': [], 'chromosom': [], 'start_pos': [], 'end_pos': [], 'length_from_pos': [], 'number_introns': [], 'mean_exon_length': []}
+   data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': [], 'chromosom': [], 'start_pos': [], 'end_pos': [], 'length_from_pos': [], 'number_introns': [], 'mean_exon_length': [], 'mfe': []}
    fasta_data = SeqIO.parse("data/lncipedia_5_2.fasta", "fasta")
    bed_raw_data = BedTool('data/lncipedia.bed')
    examiner = GFFExaminer()
@@ -76,15 +77,19 @@ def load_data(n_row=None):
    for i, record in enumerate(fasta_data):
       length = len(record.seq)
       data_dict['length'].append(length)
-      for bed_feature in ['number_exons', 'chromosom', 'start_pos', 'end_pos']:
-         data_dict[bed_feature].append(bed_data[record.name][bed_feature])
+      if record.name in bed_data:
+         for bed_feature in ['number_exons', 'chromosom', 'start_pos', 'end_pos']:
+            data_dict[bed_feature].append(bed_data[record.name][bed_feature])
 
-      end_pos = bed_data[record.name]['end_pos']
-      start_pos = bed_data[record.name]['start_pos']
-      exon_locations = annotation_data[record.id]
-      data_dict['length_from_pos'].append(end_pos - start_pos)
-      data_dict['number_introns'].append(calc_number_introns(start_pos, end_pos, exon_locations))
-      data_dict['mean_exon_length'].append(calc_mean_exon_length(exon_locations))
+         end_pos = bed_data[record.name]['end_pos']
+         start_pos = bed_data[record.name]['start_pos']
+         exon_locations = annotation_data[record.id]
+         data_dict['length_from_pos'].append(end_pos - start_pos)
+         data_dict['number_introns'].append(calc_number_introns(start_pos, end_pos, exon_locations))
+         data_dict['mean_exon_length'].append(calc_mean_exon_length(exon_locations))
+      else:
+         for feature in ['number_exons', 'chromosom', 'start_pos', 'end_pos', 'length_from_pos', 'number_introns', 'mean_exon_length']:
+            data_dict[feature].append(-1)
 
       count_g = 0
       count_a = 0
@@ -109,11 +114,17 @@ def load_data(n_row=None):
       if n_row:
          if i == n_row:
             break
+
+   list_of_lmfes = pickle.load( open( "data/list_of_mfes2.pickle", "rb" ) )
+   data_dict['mfe'].extend(list_of_lmfes)
+
    df = pd.DataFrame.from_dict(data_dict)
-   df['chromosom'] = df['chromosom'].apply(lambda x: x.split('chr')[1])
+   # run only for rows where we have valid chromosomes
+   df['chromosom'].loc[df['chromosom']!=-1] = df['chromosom'].loc[df['chromosom']!=-1].apply(lambda x: x.split('chr')[1])
    df = df[(df['chromosom'] != 'X') & (df['chromosom'] != 'Y')]
    df['chromosom'] = pd.to_numeric(df['chromosom'])
-   df = df.apply(lambda x: (x-x.mean()) / x.std(), axis=0)
+   # Also remove rows with invalid mfe and chromosomes
+   df = df.loc[df['chromosom']!=-1].loc[df['mfe']!=-1].apply(lambda x: (x-x.mean()) / x.std(), axis=0)
 
    return df
 
