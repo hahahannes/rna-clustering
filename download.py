@@ -5,13 +5,27 @@ DATA_DIR = "data"
 
 # Download lncipedia fasta files:
 fasta_url = "https://lncipedia.org/downloads/lncipedia_5_2/full-database/lncipedia_5_2.fasta"
-urllib.request.urlretrieve(fasta_url, os.path.join(DATA_DIR, fasta_url.split("/")[-1]))
-print("Done with fasta files")
+file_path = os.path.join(DATA_DIR, fasta_url.split("/")[-1])
+if not os.path.exists(file_path):
+    urllib.request.urlretrieve(fasta_url, file_path)
+    print("Done with fasta files")
+else:
+    print("fasta file already downloaded")
 
 # Download lncipedia bed files:
-bed19_url = "https://lncipedia.org/downloads/lncipedia_5_2/full-database/lncipedia_5_2_hg19.bed"
-urllib.request.urlretrieve(fasta_url, os.path.join(DATA_DIR, bed19_url.split("/")[-1]))
-
 bed38_url = "https://lncipedia.org/downloads/lncipedia_5_2/full-database/lncipedia_5_2_hg38.bed"
-urllib.request.urlretrieve(fasta_url, os.path.join(DATA_DIR, bed38_url.split("/")[-1]))
-print("Done with bed files")
+file_path = os.path.join(DATA_DIR, bed38_url.split("/")[-1])
+if not os.path.exists(file_path):
+    urllib.request.urlretrieve(bed38_url, file_path)
+    print("Done with bed files")
+else:
+    print("bed file already downloaded")
+
+# Download lncipedia gff files:
+gff38_url = "https://lncipedia.org/downloads/lncipedia_5_2/full-database/lncipedia_5_2_hg38.gff"
+file_path = os.path.join(DATA_DIR, gff38_url.split("/")[-1])
+if not os.path.exists(file_path):
+    urllib.request.urlretrieve(gff38_url, file_path)
+    print("Done with bed files")
+else:
+    print("gff file already downloaded")
