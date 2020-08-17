@@ -38,7 +38,7 @@ def calc_mean_exon_length(list_of_exons_coordinates):
    return mean(lengths)
 
 
-def load_data(n_rows=10000):
+def load_data(n_row=None):
    # https://lncipedia.org/download
    data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': [], 'chromosom': [], 'start_pos': [], 'end_pos': [], 'length_from_pos': [], 'number_introns': [], 'mean_exon_length': []}
    fasta_data = SeqIO.parse("data/lncipedia_5_2.fasta", "fasta")
@@ -106,18 +106,19 @@ def load_data(n_rows=10000):
       data_dict['ratio_c'].append(count_c/length*100)
       data_dict['ratio_a'].append(count_a/length*100)
 
-      if i == n_rows:
-         break
+      if n_row:
+         if i == n_row:
+            break
    df = pd.DataFrame.from_dict(data_dict)
    df['chromosom'] = df['chromosom'].apply(lambda x: x.split('chr')[1])
-   df = df[df['chromosom'] != 'X']
+   df = df[(df['chromosom'] != 'X') & (df['chromosom'] != 'Y')]
    df['chromosom'] = pd.to_numeric(df['chromosom'])
    df = df.apply(lambda x: (x-x.mean()) / x.std(), axis=0)
 
    return df
 
-def fit_dbscan(df, eps=0.2):
-   db = DBSCAN(eps=eps, min_samples=5).fit(df)
+def fit_dbscan(df, eps=0.2, min_samples=3):
+   db = DBSCAN(eps=eps, min_samples=min_samples).fit(df)
    core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
    core_samples_mask[db.core_sample_indices_] = True
    labels = db.labels_
@@ -128,7 +129,7 @@ def fit_dbscan(df, eps=0.2):
 
    return (n_clusters_, n_noise_, labels, core_samples_mask)
 
-def plot_dbscan(df, labels, core_samples_mask, n_clusters_):
+def plot_dbscan(df, labels, core_samples_mask, n_clusters_, ax):
    # Black removed and is used for noise instead.
    unique_labels = set(labels)
    colors = [plt.cm.Spectral(each)
@@ -141,20 +142,45 @@ def plot_dbscan(df, labels, core_samples_mask, n_clusters_):
       class_member_mask = (labels == k)
 
       xy = df[class_member_mask & core_samples_mask]
-      plt.plot(xy.iloc[:, 0], xy.iloc[:, 1], 'o', markerfacecolor=tuple(col),
+      ax.plot(xy.iloc[:, 0], xy.iloc[:, 1], 'o', markerfacecolor=tuple(col),
                markeredgecolor='k', markersize=14)
 
       xy = df[class_member_mask & ~core_samples_mask]
-      plt.plot(xy.iloc[:, 0], xy.iloc[:, 1], 'o', markerfacecolor=tuple(col),
+      ax.plot(xy.iloc[:, 0], xy.iloc[:, 1], 'o', markerfacecolor=tuple(col),
                markeredgecolor='k', markersize=6)
 
-   plt.title('Estimated number of clusters: %d' % n_clusters_)
-   plt.xlabel(df.columns[0])
-   plt.ylabel(df.columns[1])
+   #ax.title('Estimated number of clusters: %d' % n_clusters_)
+   ax.set_xlabel(df.columns[0])
+   ax.set_ylabel(df.columns[1])
    output_path = './output/dbscan' 
-   plt.savefig('%s/%s-%s.png' % (output_path, df.columns[0], df.columns[1]))
-   plt.clf()
-   plt.close()
+   #plt.savefig('%s/%s-%s.png' % (output_path, df.columns[0], df.columns[1]))
+   #plt.clf()
+   #plt.close()
+
+def plot_dbscan_3d(df, labels, core_samples_mask, n_clusters_, ax):
+   # Black removed and is used for noise instead.
+   unique_labels = set(labels)
+   colors = [plt.cm.Spectral(each)
+            for each in np.linspace(0, 1, len(unique_labels))]
+   for k, col in zip(unique_labels, colors):
+      if k == -1:
+         # Black used for noise.
+         col = [0, 0, 0, 1]
+
+      class_member_mask = (labels == k)
+
+      xy = df[class_member_mask & core_samples_mask]
+      ax.plot(xy.iloc[:, 0], xy.iloc[:, 1], xy.iloc[:, 2], 'o', markerfacecolor=tuple(col),
+               markeredgecolor='k', markersize=14)
+
+      xy = df[class_member_mask & ~core_samples_mask]
+      ax.plot(xy.iloc[:, 0], xy.iloc[:, 1], xy.iloc[:, 2], 'o', markerfacecolor=tuple(col),
+               markeredgecolor='k', markersize=6)
+
+   #ax.title('Estimated number of clusters: %d' % n_clusters_)
+   ax.set_xlabel(df.columns[0])
+   ax.set_ylabel(df.columns[1])
+   ax.set_zlabel(df.columns[2])
 
 def plot_kmeans_2d(centroids, df, n_clusters, model, ax):
    feature1 = df.columns[0]
@@ -252,9 +278,9 @@ def calc_distortion(df, cluster_centers):
 
 def plot_elbow(K, distortions):
    plt.plot(K, distortions, 'bx-') 
-   plt.xlabel('Values of K') 
-   plt.ylabel('Distortion') 
-   plt.title('The Elbow Method using Distortion') 
+   plt.xlabel('Anzahl Cluster k') 
+   plt.ylabel('Silhouette Score') 
+   plt.title('Silhouette Score je Anzahl Cluster') 
    plt.show() 
 
 def find_best_number_clusters(df, k_range=[2,4,6,8,10,12,14,16,18,20]):
@@ -267,13 +293,23 @@ def find_best_number_clusters(df, k_range=[2,4,6,8,10,12,14,16,18,20]):
 
    return [k_range[distortions.index(max(distortions))], distortions]
 
+def find_best_number_clusters_sum_squares(df, k_range=[2,4,6,8,10,12,14,16,18,20]):
+   distortions = []
+
+   for k in k_range:
+      model, cluster_centers, labels = fit_kmeans(df, k)
+      distortions.append(model.inertia_)
+
+   return [k_range[distortions.index(max(distortions))], distortions]
+
 def find_best_eps(df, eps_range=[0.001, 0.1, 0.5, 1, 2, 4, 5, 10, 20]):
    silouettes = []
    for ep in eps_range:
       n_clusters_, n_noise_, labels, core_samples_mask = fit_dbscan(df, ep)
-      silhouette_score = metrics.silhouette_score(df, labels)
-      silouettes.append(silhouette_score)
-   plot_best_eps(eps_range, silouettes)
+      if n_clusters_ > 1:
+         silhouette_score = metrics.silhouette_score(df, labels)
+         silouettes.append(silhouette_score)
+   return [eps_range[silouettes.index(max(silouettes))], silouettes] if silouettes else [None, None]
 
 def plot_best_eps(eps, silouettes):
    plt.plot(eps, silouettes, 'bx-') 
