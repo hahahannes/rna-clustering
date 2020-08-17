@@ -39,9 +39,9 @@ def calc_mean_exon_length(list_of_exons_coordinates):
    return mean(lengths)
 
 
-def load_data(n_row=None):
+def load_data(n_row=None, cleaned=True):
    # https://lncipedia.org/download
-   data_dict = {'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': [], 'chromosom': [], 'start_pos': [], 'end_pos': [], 'length_from_pos': [], 'number_introns': [], 'mean_exon_length': [], 'mfe': []}
+   data_dict = {'id': [], 'name': [],'length': [], 'ratio_g': [], 'ratio_t': [], 'ratio_c': [], 'ratio_a': [], 'number_exons': [], 'chromosom': [], 'start_pos': [], 'end_pos': [], 'length_from_pos': [], 'number_introns': [], 'mean_exon_length': [], 'mfe': []}
    fasta_data = SeqIO.parse("data/lncipedia_5_2.fasta", "fasta")
    bed_raw_data = BedTool('data/lncipedia.bed')
    examiner = GFFExaminer()
@@ -77,6 +77,8 @@ def load_data(n_row=None):
    for i, record in enumerate(fasta_data):
       length = len(record.seq)
       data_dict['length'].append(length)
+      data_dict['id'].append(record.id)
+      data_dict['name'].append(record.name)
       if record.name in bed_data:
          for bed_feature in ['number_exons', 'chromosom', 'start_pos', 'end_pos']:
             data_dict[bed_feature].append(bed_data[record.name][bed_feature])
@@ -121,10 +123,11 @@ def load_data(n_row=None):
    df = pd.DataFrame.from_dict(data_dict)
    # run only for rows where we have valid chromosomes
    df['chromosom'].loc[df['chromosom']!=-1] = df['chromosom'].loc[df['chromosom']!=-1].apply(lambda x: x.split('chr')[1])
-   df = df[(df['chromosom'] != 'X') & (df['chromosom'] != 'Y')]
-   df['chromosom'] = pd.to_numeric(df['chromosom'])
-   # Also remove rows with invalid mfe and chromosomes
-   df = df.loc[df['chromosom']!=-1].loc[df['mfe']!=-1].apply(lambda x: (x-x.mean()) / x.std(), axis=0)
+   if cleaned:
+      df = df[(df['chromosom'] != 'X') & (df['chromosom'] != 'Y')]
+      df['chromosom'] = pd.to_numeric(df['chromosom'])
+      # Also remove rows with invalid mfe and chromosomes
+      df = df.loc[df['chromosom']!=-1].loc[df['mfe']!=-1].iloc[:,2:].apply(lambda x: (x-x.mean()) / x.std(), axis=0)
 
    return df
 
